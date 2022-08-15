@@ -34,7 +34,7 @@ func (h *Handler) Init(app *fiber.App) {
 	app.Get("/:orderID", h.getOrderByID)
 	app.Get("/orders/list", h.getOrderList)
 	app.Get("/cache/:orderID", h.getOrderFromCacheByID)
-	app.Put("/put/", h.validateOrder, h.putOrderInCache)
+	app.Post("/order/post", h.validateOrder, h.putOrderInCache)
 	//app.Post("/order/create", h.createOrder)
 	//v1 := app.Group("/")
 	//

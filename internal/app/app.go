@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/go-playground/validator/v10"
 	_ "github.com/lib/pq"
 	"github.com/mitchellh/mapstructure"
 	"github.com/nats-io/stan.go"
@@ -98,33 +100,34 @@ func Run() {
 	sc, _ := stan.Connect("test-cluster", "sub-1", stan.NatsURL("nats://0.0.0.0:4223"))
 	defer sc.Close()
 
-	//sc.Subscribe("orders", func(m *stan.Msg) {
-	//	order := &models.Order{}
-	//	err := json.Unmarshal(m.Data, &order)
-	//
-	//	importData, err := json.Marshal(order)
-	//	if err != nil {
-	//		fmt.Println("Cannot Marshal import")
-	//	}
-	//
-	//	ok := c.Add(order.OrderUID, importData)
-	//	if ok {
-	//		fmt.Println("eviction occurred")
-	//	} else {
-	//		fmt.Println("eviction didn't occur")
-	//	}
-	//
-	//	value, ok, err := c.Get("11")
-	//	if !ok {
-	//		fmt.Println("cannot find order in cache")
-	//	} else {
-	//		fmt.Println("order is found")
-	//	}
-	//	msg := models.Order{}
-	//	err = json.Unmarshal(value, &msg)
-	//	fmt.Println(msg.OrderUID, msg.CustomerID)
-	//
-	//})
+	go func() {
+		sc.Subscribe("orders", func(m *stan.Msg) {
+			order := &models.Order{}
+
+			err := json.Unmarshal(m.Data, &order)
+			if err != nil {
+				fmt.Println("Cannot Marshal import")
+			}
+
+			err = validateOrder(order)
+			if err != nil {
+				logrus.Error("Order is not valid")
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.ShutdownTimeout)*time.Second)
+				defer cancel()
+				err = services.Order.CreateOrder(ctx, order)
+				if err != nil {
+					logrus.Error(err)
+				}
+				ok := c.Add(order.OrderUID, order)
+				if ok {
+					fmt.Println("eviction occurred")
+				} else {
+					fmt.Println("eviction didn't occur")
+				}
+			}
+		})
+	}()
 
 	Block()
 
@@ -148,4 +151,14 @@ func Block() {
 	w := sync.WaitGroup{}
 	w.Add(1)
 	w.Wait()
+}
+
+var Validator = validator.New()
+
+func validateOrder(ord *models.Order) error {
+	err := Validator.Struct(ord)
+	if err != nil {
+		return errors.New("cannot validate order")
+	}
+	return nil
 }
