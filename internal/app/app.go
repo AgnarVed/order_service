@@ -1,0 +1,151 @@
+package app
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	_ "github.com/lib/pq"
+	"github.com/mitchellh/mapstructure"
+	"github.com/nats-io/stan.go"
+	"github.com/sirupsen/logrus"
+	"io"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"tests2/internal/cache"
+	"tests2/internal/config"
+	"tests2/internal/http"
+	"tests2/internal/models"
+	"tests2/internal/repository"
+	"tests2/internal/repository/client"
+	"tests2/internal/server"
+	"tests2/internal/service"
+	"time"
+)
+
+func Run() {
+	cfg, err := config.NewConfig()
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	writers := make([]io.Writer, 0)
+	writers = append(writers, os.Stderr)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+	logrus.SetOutput(io.MultiWriter(writers...))
+
+	db, err := sql.Open(cfg.DriverName, cfg.DBConnStr)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	if err := db.Ping(); err != nil {
+		logrus.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			logrus.Fatal(err)
+		}
+	}()
+
+	pgClient := client.NewPostgresClient(db)
+
+	repos := repository.NewRepositories(&pgClient)
+
+	services := service.NewService(repos, cfg)
+
+	c, err := cache.NewCache(1024)
+	if err != nil {
+		logrus.Fatal("Cannot init cache ", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.ShutdownTimeout)*time.Second)
+	defer cancel()
+	orders, err := services.Order.GetOrderList(ctx)
+	if err != nil {
+		logrus.Fatal("Cannot upload cache", err)
+	}
+	err = c.UploadCache(orders)
+	if err != nil {
+		logrus.Fatal("cannot upload cache")
+	}
+
+	//
+	val, ok, err := c.Get("b563feb7b2b84b6test")
+	if err != nil {
+		logrus.Fatal("cannot get order")
+	}
+	if ok {
+		logrus.Info("ok")
+	}
+	order := models.Order{}
+	err = json.Unmarshal(val, &order)
+	fmt.Println(order)
+	//
+
+	srv := server.NewServer(cfg)
+	http.NewHandlers(cfg, services, c).Init(srv.App())
+
+	go func() {
+		err := srv.Run()
+		if err != nil {
+			logrus.Fatal(err)
+		}
+	}()
+
+	sc, _ := stan.Connect("test-cluster", "sub-1", stan.NatsURL("nats://0.0.0.0:4223"))
+	defer sc.Close()
+
+	//sc.Subscribe("orders", func(m *stan.Msg) {
+	//	order := &models.Order{}
+	//	err := json.Unmarshal(m.Data, &order)
+	//
+	//	importData, err := json.Marshal(order)
+	//	if err != nil {
+	//		fmt.Println("Cannot Marshal import")
+	//	}
+	//
+	//	ok := c.Add(order.OrderUID, importData)
+	//	if ok {
+	//		fmt.Println("eviction occurred")
+	//	} else {
+	//		fmt.Println("eviction didn't occur")
+	//	}
+	//
+	//	value, ok, err := c.Get("11")
+	//	if !ok {
+	//		fmt.Println("cannot find order in cache")
+	//	} else {
+	//		fmt.Println("order is found")
+	//	}
+	//	msg := models.Order{}
+	//	err = json.Unmarshal(value, &msg)
+	//	fmt.Println(msg.OrderUID, msg.CustomerID)
+	//
+	//})
+
+	Block()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	<-quit
+	if err := srv.Stop(); err != nil {
+		logrus.Fatal("Server forced to shut down", err)
+	}
+}
+
+func Convert(input interface{}) ([]byte, error) {
+	var order []byte
+	err := mapstructure.Decode(input, &order)
+	if err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+func Block() {
+	w := sync.WaitGroup{}
+	w.Add(1)
+	w.Wait()
+}
