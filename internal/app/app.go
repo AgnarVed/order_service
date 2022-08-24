@@ -3,15 +3,13 @@ package app
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/go-playground/validator/v10"
 	_ "github.com/lib/pq"
 	"github.com/mitchellh/mapstructure"
-	"github.com/nats-io/stan.go"
 	"github.com/sirupsen/logrus"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"sync"
@@ -19,6 +17,7 @@ import (
 	"tests2/internal/cache"
 	"tests2/internal/config"
 	"tests2/internal/http"
+	"tests2/internal/minio"
 	"tests2/internal/models"
 	"tests2/internal/repository"
 	"tests2/internal/repository/client"
@@ -57,7 +56,16 @@ func Run() {
 
 	repos := repository.NewRepositories(&pgClient)
 
-	services := service.NewService(repos, cfg)
+	min, err := minio.NewMinIOClient(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := min.InitDocBucket(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	services := service.NewService(repos, cfg, min)
 
 	c, err := cache.NewCache(1024)
 	if err != nil {
@@ -74,19 +82,6 @@ func Run() {
 		logrus.Fatal("cannot upload cache")
 	}
 
-	//
-	val, ok, err := c.Get("b563feb7b2b84b6test")
-	if err != nil {
-		logrus.Fatal("cannot get order")
-	}
-	if ok {
-		logrus.Info("ok")
-	}
-	order := models.Order{}
-	err = json.Unmarshal(val, &order)
-	fmt.Println(order)
-	//
-
 	srv := server.NewServer(cfg)
 	http.NewHandlers(cfg, services, c).Init(srv.App())
 
@@ -97,39 +92,39 @@ func Run() {
 		}
 	}()
 
-	sc, _ := stan.Connect("test-cluster", "sub-1", stan.NatsURL("nats://0.0.0.0:4223"))
-	defer sc.Close()
-
-	go func() {
-		sc.Subscribe("orders", func(m *stan.Msg) {
-			order := &models.Order{}
-
-			err := json.Unmarshal(m.Data, &order)
-			if err != nil {
-				fmt.Println("Cannot Marshal import")
-			}
-
-			err = validateOrder(order)
-			if err != nil {
-				logrus.Error("Order is not valid")
-			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.ShutdownTimeout)*time.Second)
-				defer cancel()
-				err = services.Order.CreateOrder(ctx, order)
-				if err != nil {
-					logrus.Error(err)
-				}
-				ok := c.Add(order.OrderUID, order)
-				if ok {
-					fmt.Println("eviction occurred")
-				} else {
-					fmt.Println("eviction didn't occur")
-				}
-			}
-		})
-	}()
-
-	Block()
+	//sc, _ := stan.Connect("test-cluster", "sub-1", stan.NatsURL("nats://0.0.0.0:4223"))
+	//defer sc.Close()
+	//
+	//go func() {
+	//	sc.Subscribe("orders", func(m *stan.Msg) {
+	//		order := &models.Order{}
+	//
+	//		err := json.Unmarshal(m.Data, &order)
+	//		if err != nil {
+	//			fmt.Println("Cannot Marshal import")
+	//		}
+	//
+	//		err = validateOrder(order)
+	//		if err != nil {
+	//			logrus.Error("Order is not valid")
+	//		} else {
+	//			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.ShutdownTimeout)*time.Second)
+	//			defer cancel()
+	//			err = services.Order.CreateOrder(ctx, order)
+	//			if err != nil {
+	//				logrus.Error(err)
+	//			}
+	//			ok := c.Add(order.OrderUID, order)
+	//			if ok {
+	//				fmt.Println("eviction occurred")
+	//			} else {
+	//				fmt.Println("eviction didn't occur")
+	//			}
+	//		}
+	//	})
+	//}()
+	//
+	//Block()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)

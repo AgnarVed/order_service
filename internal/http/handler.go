@@ -5,16 +5,20 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	log "github.com/sirupsen/logrus"
+	"tests2/internal/auth"
 	"tests2/internal/cache"
 	"tests2/internal/config"
 	"tests2/internal/models"
 	"tests2/internal/service"
+	"tests2/internal/utils"
 )
 
 type Handler struct {
-	cfg      *config.Config
-	services *service.Service
-	cache    *cache.Cache
+	cfg        *config.Config
+	services   *service.Service
+	cache      *cache.Cache
+	middleware auth.Auth
+	utilsUser  utils.UtilsUser
 }
 
 func (h *Handler) Init(app *fiber.App) {
@@ -26,20 +30,13 @@ func (h *Handler) Init(app *fiber.App) {
 
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
-		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+		AllowMethods: "GET,HEAD,POST,PUT,DELETE,OPTIONS",
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
-	app.Get("/ping", h.serviceHealth)
-	app.Get("/:orderID", h.getOrderByID)
-	app.Get("/orders/list", h.getOrderList)
-	app.Get("/cache/:orderID", h.getOrderFromCacheByID)
-	app.Post("/order/post", h.validateOrder, h.putOrderInCache)
-	//app.Post("/order/create", h.createOrder)
-	//v1 := app.Group("/")
-	//
-	//h.initRoutesItem(v1)
-
+	api := app.Group("/api")
+	v1 := api.Group("/v1")
+	h.initRoutesDocs(v1)
 }
 
 func (h *Handler) serviceHealth(ctx *fiber.Ctx) error {
@@ -69,8 +66,10 @@ func (h *Handler) Response(ctx *fiber.Ctx, statusCode int, data interface{}, err
 
 func NewHandlers(cfg *config.Config, services *service.Service, cache *cache.Cache) *Handler {
 	return &Handler{
-		cfg:      cfg,
-		services: services,
-		cache:    cache,
+		cfg:        cfg,
+		services:   services,
+		cache:      cache,
+		middleware: *auth.NewAuth(cfg),
+		utilsUser:  utils.NewUtilsUser(),
 	}
 }

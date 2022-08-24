@@ -17,6 +17,15 @@ type Config struct {
 	DurableName          string `mapstructure:"DURABLE_NAME" required:"true"`
 	CacheSize            int    `mapstructure:"CACHE_SIZE" required:"true"`
 	ShutdownTimeout      int    `mapstructure:"SHUTDOWN_TIMEOUT" required:"true"`
+	GatewayURL           string `mapstructure:"GATEWAY_URL" required:"true"`
+	DebugAuth            bool   `mapstructure:"DEBUG_AUTH" default:"false"` // DebugAuth флаг для отключения проверки авторизации
+	TokenSignedKey       string `mapstructure:"TOKEN_SIGNED_KEY" default:"AAA"`
+
+	// MinIO
+	MinIOURL       string `mapstructure:"MINIO_URL" required:"true"`
+	MinIOUser      string `mapstructure:"MINIO_USER" required:"true"`
+	MinIOPass      string `mapstructure:"MINIO_PASS" required:"true"`
+	MinIODocBucket string `mapstructure:"MINIO_DOC_BUCKET" required:"true"`
 }
 
 //func getTime(input string) (time.Duration, error) {
@@ -24,7 +33,7 @@ type Config struct {
 //}
 
 func NewConfig() (*Config, error) {
-	viper.SetConfigName(".env")
+	viper.SetConfigName("config.env")
 	viper.SetConfigType("env")
 	viper.AddConfigPath(".")
 

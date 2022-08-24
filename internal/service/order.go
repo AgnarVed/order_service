@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"tests2/internal/config"
 	"tests2/internal/models"
 	"tests2/internal/repository"
@@ -16,7 +15,7 @@ type order struct {
 func (od order) GetOrderByID(ctx context.Context, orderID string) (*models.Order, error) {
 	tx, err := od.BeginTransaction(ctx)
 	if err != nil {
-		return nil, errors.New("транзакции??")
+		return nil, err
 	}
 
 	order, err := od.orderDB.GetOrderByID(ctx, tx, orderID)
@@ -27,7 +26,7 @@ func (od order) GetOrderByID(ctx context.Context, orderID string) (*models.Order
 	err = od.CommitTransaction(ctx, tx)
 	if err != nil {
 		od.RollbackTransaction(ctx, tx)
-		return nil, errors.New("возможно и тут")
+		return nil, err
 	}
 	return order, nil
 }
@@ -59,7 +58,7 @@ func (od *order) GetOrderList(ctx context.Context) ([]*models.OrderDB, error) {
 	orders, err := od.orderDB.GetOrderList(ctx, tx)
 	if err != nil {
 		od.RollbackTransaction(ctx, tx)
-		return nil, errors.New("все таки вот тут")
+		return nil, err
 	}
 	err = od.CommitTransaction(ctx, tx)
 	if err != nil {

@@ -8,8 +8,10 @@ import (
 )
 
 func (h *Handler) getOrderFromCacheByID(ctx *fiber.Ctx) error {
-	orderIdStr := ctx.Params("orderID")
-	orderByte, _, err := h.cache.Get(orderIdStr)
+
+	orderIDStr := ctx.Query("orderUID")
+	//orderIdStr := ctx.Params("orderUID")
+	orderByte, _, err := h.cache.Get(orderIDStr)
 	order := models.Order{}
 	err = json.Unmarshal(orderByte, &order)
 	if err != nil {

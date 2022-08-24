@@ -7,8 +7,10 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
+	"log"
 	"tests2/internal/cache"
 	"tests2/internal/config"
+	"tests2/internal/minio"
 	"tests2/internal/repository"
 	"tests2/internal/repository/client"
 	"tests2/internal/service"
@@ -28,7 +30,15 @@ func setup() *fiber.App {
 	}
 	clnt := client.NewPostgresClient(db)
 	repos := repository.NewRepositories(&clnt)
-	services := service.NewService(repos, &cfg)
+	min, err := minio.NewMinIOClient(&cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := min.InitDocBucket(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+	services := service.NewService(repos, &cfg, min)
 	c, err := cache.NewCache(1024)
 	if err != nil {
 		logrus.Error("cannot init cache")

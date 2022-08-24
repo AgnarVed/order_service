@@ -30,9 +30,11 @@ func (s server) Stop() error {
 }
 
 func NewServer(cfg *config.Config) Server {
+
 	app := fiber.New()
 	return &server{
 		app: app,
 		cfg: cfg,
 	}
+
 }
